@@ -14,13 +14,16 @@ dados da [Open-Meteo](https://open-meteo.com/).
   Mini 4 Pro, Mini 5 Pro, Air 3 e Air 3S.
 - **Status geral no topo**: verde “Bom para voo”, amarelo “Voo com atenção”
   ou vermelho “Ruim para voo”, com o motivo principal.
+- **Ficha do drone**: toque no **nome do drone** (abaixo do status) para abrir
+  a ficha técnica com velocidade máxima, rajada e vento suportados, peso,
+  distância máxima e tempo estimado de voo.
 - **Grade de 3 quadrados por linha**:
   1. Temperatura
   2. Céu (sol / nublado / chuva…)
   3. Velocidade do vento
   4. Rajadas de vento
   5. Altura das nuvens
-  6. Direção do vento
+  6. Direção do vento (bússola com N/E/S/W e seta verde)
 - Cada quadrado fica **verde** quando está bom, **amarelo** quando exige
   atenção e **vermelho** quando está ruim.
 - **Unidades**: vento em **km/h** por padrão (menu e tela principal).
@@ -29,6 +32,9 @@ dados da [Open-Meteo](https://open-meteo.com/).
 - **Localização**: busca por cidade ou GPS do celular.
 - **Próximas horas**: 5 quadrados fixos com vento e rajadas, sempre
   começando na hora atual (ao virar a hora, a lista desliza sozinha).
+- **Atualização automática**: os dados são buscados de novo a cada **10 min**
+  enquanto o app está aberto. Ao voltar para o app depois de **3 min** fora,
+  ele atualiza na hora. Se a busca falhar, tenta de novo só no próximo ciclo.
 - Funciona **offline** depois da primeira visita (service worker) e pode ser
   instalado na tela inicial.
 
@@ -87,12 +93,25 @@ Cada drone tem um **limite de vento** (especificação DJI):
 | Air 3       | 43 km/h (12,0 m/s)  | -10 a 40 °C |
 | Air 3S      | 43 km/h (12,0 m/s)  | -10 a 40 °C |
 
+Ficha técnica mostrada ao tocar no nome do drone (dados oficiais DJI):
+
+| Drone       | Velocidade máx.        | Peso       | Distância máx. | Voo           |
+|-------------|------------------------|------------|----------------|---------------|
+| Mini 3      | 57,6 km/h              | 248 g      | 18 / 25 km¹    | 38 / 51 min¹  |
+| Mini 3 Pro  | 57,6 km/h              | < 249 g    | 18 / 25 km¹    | 34 / 47 min¹  |
+| Mini 4 Pro  | 57,6 km/h              | < 249 g    | 18 / 25 km¹    | 34 / 45 min¹  |
+| Mini 5 Pro  | 64,8 / 68,4 km/h¹      | 249,9 g    | 21 / 32 km¹    | 36 / 52 min¹  |
+| Air 3       | 75,6 km/h              | 720 g      | 32 km          | 46 min        |
+| Air 3S      | 75,6 km/h              | 724 g      | 32 km          | 45 min        |
+
+> ¹ Com bateria **Plus**.
+
 Regras aplicadas:
 
 | Item              | Verde            | Amarelo           | Vermelho              |
 |-------------------|------------------|-------------------|-----------------------|
 | Vento             | até 60% do limite| até 85%           | acima de 85%          |
-| Rajadas           | até 70% do limite| até 90%           | acima de 90%          |
+| Rajadas           | até 80% do limite| até 90%           | acima de 90%          |
 | Temperatura       | 5 a 32 °C        | 0–5 ou 32–40 °C   | fora de -10 a 40 °C   |
 | Céu               | limpo/parcial    | nublado           | chuva, garoa, nevoeiro, tempestade |
 | Nuvens baixas     | acima de 400 m   | 200 a 400 m       | abaixo de 200 m       |
@@ -105,6 +124,11 @@ Regras aplicadas:
 
 **O status geral é o pior item entre todos.** Se qualquer item estiver
 vermelho, o topo fica vermelho.
+
+> A faixa da **rajada** (80% do limite para verde) é uma margem de segurança:
+> a DJI publica apenas a resistência ao vento sustentado, não um limite de
+> rajada. Para o Mini 3 Pro isso significa verde até ~31 km/h, amarelo até
+> ~35 km/h e vermelho acima disso.
 
 ---
 
@@ -131,11 +155,21 @@ Em `app.js`, no topo:
 ```js
 const DRONES = [
   // ...
-  { id: 'mavic4', name: 'Mavic 4 Pro', windLimit: 12.0, tempMin: -10, tempMax: 40 },
+  {
+    id: 'mavic4', name: 'Mavic 4 Pro', windLimit: 12.0, tempMin: -10, tempMax: 40,
+    specs: {
+      speed: '90 km/h', speedHint: 'modo S',
+      weight: '1063 g',
+      distance: '30 km', distanceHint: '',
+      flightTime: '51 min', flightHint: '',
+    },
+  },
 ];
 ```
 
-O menu e o cálculo se atualizam sozinhos.
+Os campos de `specs` são só para a ficha técnica (texto livre). Se faltar
+algum, a linha aparece vazia — o cálculo de voo continua usando apenas
+`windLimit`, `tempMin` e `tempMax`. O menu e a ficha se atualizam sozinhos.
 
 ---
 

@@ -11,18 +11,70 @@
    Faixa de temperatura operacional conforme fabricante.
    ------------------------------------------------------------ */
 const DRONES = [
-  { id: 'mini3',    name: 'Mini 3',     windLimit: 10.7, tempMin: -10, tempMax: 40 },
-  { id: 'mini3pro', name: 'Mini 3 Pro', windLimit: 10.7, tempMin: -10, tempMax: 40 },
-  { id: 'mini4',    name: 'Mini 4 Pro', windLimit: 10.7, tempMin: -10, tempMax: 40 },
-  { id: 'mini5',    name: 'Mini 5 Pro', windLimit: 12.0, tempMin: -10, tempMax: 40 },
-  { id: 'air3',     name: 'Air 3',      windLimit: 12.0, tempMin: -10, tempMax: 40 },
-  { id: 'air3s',    name: 'Air 3S',     windLimit: 12.0, tempMin: -10, tempMax: 40 },
+  {
+    id: 'mini3', name: 'Mini 3', windLimit: 10.7, tempMin: -10, tempMax: 40,
+    specs: {
+      speed: '57,6 km/h', speedHint: 'modo S',
+      weight: '248 g',
+      distance: '18 km', distanceHint: '25 km com bateria Plus',
+      flightTime: '38 min', flightHint: '51 min com bateria Plus',
+    },
+  },
+  {
+    id: 'mini3pro', name: 'Mini 3 Pro', windLimit: 10.7, tempMin: -10, tempMax: 40,
+    specs: {
+      speed: '57,6 km/h', speedHint: 'modo S',
+      weight: '< 249 g',
+      distance: '18 km', distanceHint: '25 km com bateria Plus',
+      flightTime: '34 min', flightHint: '47 min com bateria Plus',
+    },
+  },
+  {
+    id: 'mini4', name: 'Mini 4 Pro', windLimit: 10.7, tempMin: -10, tempMax: 40,
+    specs: {
+      speed: '57,6 km/h', speedHint: 'modo S',
+      weight: '< 249 g',
+      distance: '18 km', distanceHint: '25 km com bateria Plus',
+      flightTime: '34 min', flightHint: '45 min com bateria Plus',
+    },
+  },
+  {
+    id: 'mini5', name: 'Mini 5 Pro', windLimit: 12.0, tempMin: -10, tempMax: 40,
+    specs: {
+      speed: '64,8 km/h', speedHint: '68,4 km/h com bateria Plus',
+      weight: '249,9 g',
+      distance: '21 km', distanceHint: '32 km com bateria Plus',
+      flightTime: '36 min', flightHint: '52 min com bateria Plus',
+    },
+  },
+  {
+    id: 'air3', name: 'Air 3', windLimit: 12.0, tempMin: -10, tempMax: 40,
+    specs: {
+      speed: '75,6 km/h', speedHint: 'modo S',
+      weight: '720 g',
+      distance: '32 km', distanceHint: '',
+      flightTime: '46 min', flightHint: '',
+    },
+  },
+  {
+    id: 'air3s', name: 'Air 3S', windLimit: 12.0, tempMin: -10, tempMax: 40,
+    specs: {
+      speed: '75,6 km/h', speedHint: 'modo S',
+      weight: '724 g',
+      distance: '32 km', distanceHint: '',
+      flightTime: '45 min', flightHint: '',
+    },
+  },
 ];
 
 const STORAGE = {
   drone: 'flydrone.drone',
   place: 'flydrone.place',
 };
+
+/* Atualiza sozinho a cada 10 min; ao voltar para o app, se ficou 3 min fora. */
+const AUTO_REFRESH_MS = 10 * 60 * 1000;
+const RETURN_REFRESH_MS = 3 * 60 * 1000;
 
 const DEFAULT_PLACE = {
   latitude: -23.5505,
@@ -37,6 +89,13 @@ const API_GEOCODE  = 'https://geocoding-api.open-meteo.com/v1/search';
 
 const STATUS_RANK = { good: 0, warn: 1, bad: 2 };
 
+/* Faixas de alerta como fração do limite de vento do drone.
+   Rajada: 80% = margem de 20% abaixo do limite DJI. */
+const WIND_GOOD_RATIO = 0.60;
+const WIND_WARN_RATIO = 0.85;
+const GUST_GOOD_RATIO = 0.80;
+const GUST_WARN_RATIO = 0.90;
+
 /* ------------------------------------------------------------
    2. ESTADO
    ------------------------------------------------------------ */
@@ -45,6 +104,9 @@ const state = {
   place: readSavedPlace(),
   weather: null,
   loading: false,
+  fetchedAt: 0,      // última busca bem-sucedida
+  lastAttemptAt: 0,  // última tentativa (evita repetir em caso de erro)
+  hourKey: null,
   windUnit: 'kmh', // sempre volta para km/h ao recarregar a página
 };
 
@@ -78,6 +140,7 @@ const el = {
   verdictBadge: $('#verdictBadge'),
   verdictLabel: $('#verdictLabel'),
   verdictDrone: $('#verdictDrone'),
+  verdictDroneName: $('#verdictDroneName'),
   verdictReason:$('#verdictReason'),
   windFill:     $('#windFill'),
   windLimitMark:$('#windLimitMark'),
@@ -103,6 +166,7 @@ const el = {
   gustSub:   $('#gustSub'),
   cloudValue:$('#cloudValue'),
   cloudSub:  $('#cloudSub'),
+  compass:   $('#compass'),
   dirArrow:  $('#dirArrow'),
   dirValue:  $('#dirValue'),
   dirSub:    $('#dirSub'),
@@ -115,6 +179,12 @@ const el = {
   drawer:      $('#drawer'),
   drawerClose: $('#drawerClose'),
   droneList:   $('#droneList'),
+
+  droneModal:   $('#droneModal'),
+  droneTitle:   $('#droneTitle'),
+  droneSpecs:   $('#droneSpecs'),
+  droneClose:   $('#droneClose'),
+  droneSwap:    $('#droneSwap'),
 
   locModal:   $('#locModal'),
   locInput:   $('#locInput'),
@@ -184,16 +254,25 @@ function cardinal(deg) {
 /* ------------------------------------------------------------
    5. AVALIAÇÃO DAS CONDIÇÕES
    ------------------------------------------------------------ */
-function skyInfo(code) {
-  if (code === 0) return { icon: 'i-sun',       label: 'Céu limpo',         status: 'good' };
-  if (code === 1) return { icon: 'i-cloud-sun', label: 'Predomínio de sol', status: 'good' };
-  if (code === 2) return { icon: 'i-cloud-sun', label: 'Parcial. nublado',  status: 'good' };
-  if (code === 3) return { icon: 'i-cloud',     label: 'Nublado',           status: 'warn' };
+function skyInfo(code, isDay = true) {
+  if (code === 0) {
+    return isDay
+      ? { icon: 'i-sun',  label: 'Ensolarado', status: 'good' }
+      : { icon: 'i-moon', label: 'Céu limpo',  status: 'good' };
+  }
+  if (code === 1 || code === 2) {
+    return {
+      icon: isDay ? 'i-cloud-sun' : 'i-cloud-moon',
+      label: 'Nublado',
+      status: 'good',
+    };
+  }
+  if (code === 3) return { icon: 'i-cloud',     label: 'Nublado',    status: 'warn' };
   if (code === 45 || code === 48) return { icon: 'i-fog', label: 'Nevoeiro', status: 'bad' };
-  if (code >= 51 && code <= 57) return { icon: 'i-rain',  label: 'Garoa',    status: 'bad' };
-  if (code >= 61 && code <= 67) return { icon: 'i-rain',  label: 'Chuva',    status: 'bad' };
+  if (code >= 51 && code <= 57) return { icon: 'i-rain',  label: 'Garoando', status: 'bad' };
+  if (code >= 61 && code <= 67) return { icon: 'i-rain',  label: 'Chuvoso',  status: 'bad' };
   if (code >= 71 && code <= 77) return { icon: 'i-snow',  label: 'Neve',     status: 'bad' };
-  if (code >= 80 && code <= 82) return { icon: 'i-rain',  label: 'Pancadas', status: 'bad' };
+  if (code >= 80 && code <= 82) return { icon: 'i-rain',  label: 'Chuvoso',  status: 'bad' };
   if (code === 85 || code === 86) return { icon: 'i-snow', label: 'Neve',    status: 'bad' };
   if (code >= 95) return { icon: 'i-storm', label: 'Tempestade', status: 'bad' };
   return { icon: 'i-cloud', label: 'Nublado', status: 'warn' };
@@ -206,10 +285,12 @@ function assess(c, drone) {
   const limit = drone.windLimit;
 
   const windRatio = wind / limit;
-  const windStatus = windRatio <= 0.6 ? 'good' : windRatio <= 0.85 ? 'warn' : 'bad';
+  const windStatus = windRatio <= WIND_GOOD_RATIO ? 'good'
+    : windRatio <= WIND_WARN_RATIO ? 'warn' : 'bad';
 
   const gustRatio = gust / limit;
-  const gustStatus = gustRatio <= 0.7 ? 'good' : gustRatio <= 0.9 ? 'warn' : 'bad';
+  const gustStatus = gustRatio <= GUST_GOOD_RATIO ? 'good'
+    : gustRatio <= GUST_WARN_RATIO ? 'warn' : 'bad';
 
   /* ---- Temperatura ---- */
   const temp = Number(c.temperature_2m);
@@ -220,7 +301,8 @@ function assess(c, drone) {
   /* ---- Céu / precipitação ---- */
   const code = Number(c.weather_code);
   const visibility = c.visibility == null ? NaN : Number(c.visibility);
-  const sky = skyInfo(code);
+  const isDay = c.is_day == null ? true : Number(c.is_day) === 1;
+  const sky = skyInfo(code, isDay);
   let skyStatus = sky.status;
   if ((Number(c.precipitation) || 0) > 0.1 && skyStatus !== 'bad') {
     skyStatus = 'bad';
@@ -379,7 +461,7 @@ function renderVerdict(a, drone) {
     : a.overall === 'warn' ? 'Voo com atenção'
     : 'Ruim para voo';
 
-  el.verdictDrone.textContent = drone.name;
+  el.verdictDroneName.textContent = drone.name;
   el.verdictReason.textContent = a.reasonText;
 
   const max = drone.windLimit * 1.15;
@@ -401,6 +483,7 @@ function renderTiles(a, drone, c) {
 
   /* --- Céu --- */
   el.tileSky.dataset.status = a.sky.status;
+  el.tileSky.dataset.weather = a.sky.icon;
   el.skyIcon.firstElementChild.setAttribute('href', `#${a.sky.icon}`);
   el.skyValue.textContent = a.sky.label;
   el.skySub.textContent = `${Math.round(a.sky.cloudCover)}% de nuvens`;
@@ -423,10 +506,59 @@ function renderTiles(a, drone, c) {
   el.cloudSub.textContent = a.cloud.label;
 
   /* --- Direção --- */
+  const dirCardinal = cardinal(a.dir.value);
   el.tileDir.dataset.status = a.dir.status;
-  el.dirValue.textContent = cardinal(a.dir.value);
+  el.dirValue.textContent = dirCardinal;
   el.dirSub.textContent = `Vindo de ${Math.round(a.dir.value)}°`;
-  el.dirArrow.style.transform = `rotate(${(a.dir.value + 180) % 360}deg)`;
+  el.compass.setAttribute(
+    'aria-label',
+    `Vento vindo de ${dirCardinal} (${Math.round(a.dir.value)}°)`
+  );
+  /* A seta verde da bússola aponta para a origem do vento (de onde ele vem). */
+  el.dirArrow.style.transform = `rotate(${a.dir.value}deg)`;
+}
+
+/* --- Ficha técnica do drone selecionado --- */
+function renderDroneSpecs(drone) {
+  const windKmh = `${fmt(drone.windLimit * 3.6, 0)} km/h`;
+  const rows = [
+    { label: 'Velocidade máxima', value: drone.specs.speed, hint: drone.specs.speedHint },
+    { label: 'Rajada suportada', value: windKmh, hint: `alerta a partir de ${fmt(drone.windLimit * 3.6 * GUST_GOOD_RATIO, 0)} km/h` },
+    { label: 'Vento suportado', value: windKmh, hint: `${fmt(drone.windLimit, 1)} m/s` },
+    { label: 'Peso', value: drone.specs.weight },
+    { label: 'Distância máxima', value: drone.specs.distance, hint: drone.specs.distanceHint },
+    { label: 'Tempo estimado de voo', value: drone.specs.flightTime, hint: drone.specs.flightHint },
+  ];
+
+  const frag = document.createDocumentFragment();
+
+  rows.forEach(({ label, value, hint }) => {
+    const li = document.createElement('li');
+    li.className = 'spec';
+
+    const key = document.createElement('span');
+    key.className = 'spec__label';
+    key.textContent = label;
+
+    const val = document.createElement('span');
+    val.className = 'spec__val';
+
+    const main = document.createElement('span');
+    main.textContent = value;
+    val.appendChild(main);
+
+    if (hint) {
+      const sub = document.createElement('span');
+      sub.className = 'spec__hint';
+      sub.textContent = hint;
+      val.appendChild(sub);
+    }
+
+    li.append(key, val);
+    frag.appendChild(li);
+  });
+
+  el.droneSpecs.replaceChildren(frag);
 }
 
 function renderHourly(drone) {
@@ -460,8 +592,8 @@ function renderHourly(drone) {
     const gustRatio = gust / drone.windLimit;
 
     const status = Math.max(
-      ratio <= 0.6 ? 0 : ratio <= 0.85 ? 1 : 2,
-      gustRatio <= 0.7 ? 0 : gustRatio <= 0.9 ? 1 : 2
+      ratio <= WIND_GOOD_RATIO ? 0 : ratio <= WIND_WARN_RATIO ? 1 : 2,
+      gustRatio <= GUST_GOOD_RATIO ? 0 : gustRatio <= GUST_WARN_RATIO ? 1 : 2
     );
 
     const card = document.createElement('div');
@@ -569,6 +701,26 @@ function closeDrawer() {
   el.menuBtn.setAttribute('aria-expanded', 'false');
   document.body.classList.remove('no-scroll');
   setTimeout(() => { el.scrim.hidden = true; }, 280);
+}
+
+/* ------------------------------------------------------------
+   7.1 FICHA DO DRONE
+   ------------------------------------------------------------ */
+function openDroneModal() {
+  const drone = getDrone();
+  el.droneTitle.textContent = drone.name;
+  renderDroneSpecs(drone);
+
+  el.droneModal.hidden = false;
+  requestAnimationFrame(() => el.droneModal.classList.add('is-open'));
+  document.body.classList.add('no-scroll');
+  setTimeout(() => el.droneClose.focus({ preventScroll: true }), 320);
+}
+
+function closeDroneModal() {
+  el.droneModal.classList.remove('is-open');
+  document.body.classList.remove('no-scroll');
+  setTimeout(() => { el.droneModal.hidden = true; }, 280);
 }
 
 /* ------------------------------------------------------------
@@ -773,6 +925,7 @@ async function loadWeather() {
   if (!state.place || state.loading) return;
 
   state.loading = true;
+  state.lastAttemptAt = Date.now();
   document.body.classList.add('is-spinning');
   el.main.classList.add('is-loading');
 
@@ -810,6 +963,17 @@ function bindEvents() {
   el.menuBtn.addEventListener('click', openDrawer);
   el.drawerClose.addEventListener('click', closeDrawer);
   el.scrim.addEventListener('click', closeDrawer);
+
+  /* Toque no nome do drone abre a ficha técnica. */
+  el.verdictDrone.addEventListener('click', openDroneModal);
+  el.droneClose.addEventListener('click', closeDroneModal);
+  el.droneModal.querySelector('[data-close-drone-modal]')
+    .addEventListener('click', closeDroneModal);
+
+  el.droneSwap.addEventListener('click', () => {
+    closeDroneModal();
+    setTimeout(openDrawer, 240);
+  });
 
   el.refreshBtn.addEventListener('click', () => {
     if (state.loading) return;
@@ -851,14 +1015,15 @@ function bindEvents() {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (el.locModal.classList.contains('is-open')) closeModal();
+    else if (el.droneModal.classList.contains('is-open')) closeDroneModal();
     else if (el.drawer.classList.contains('is-open')) closeDrawer();
   });
 
-  /* Atualiza ao voltar para o app (se passou mais de 10 min) */
+  /* Atualiza ao voltar para o app (se passou mais de 3 min) */
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') return;
-    if (!state.fetchedAt) return;
-    if (Date.now() - state.fetchedAt > 10 * 60 * 1000) loadWeather();
+    if (!state.lastAttemptAt) return;
+    if (Date.now() - state.lastAttemptAt > RETURN_REFRESH_MS) loadWeather();
   });
 }
 
@@ -890,14 +1055,18 @@ function init() {
 
   registerSW();
 
-  /* Quando vira a hora, recarrega para a faixa "Próximas horas" deslizar. */
+  /* A cada minuto verifica se já passaram 10 min (atualiza sozinho)
+     ou se virou a hora (para a faixa "Próximas horas" deslizar). */
   setInterval(() => {
+    if (state.loading) return;
+    if (document.visibilityState !== 'visible') return;
+
     const key = currentHourKey();
-    if (!key) return;
-    if (state.hourKey && key !== state.hourKey && !state.loading) {
-      state.hourKey = key;
-      loadWeather();
-    }
+    const hourChanged = Boolean(key && state.hourKey && key !== state.hourKey);
+    const stale = Boolean(state.lastAttemptAt && Date.now() - state.lastAttemptAt >= AUTO_REFRESH_MS);
+
+    if (hourChanged) state.hourKey = key;
+    if (hourChanged || stale) loadWeather();
   }, 60 * 1000);
 }
 
