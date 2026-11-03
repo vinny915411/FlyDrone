@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#05080f" />
+  <meta name="description" content="Condições de voo para drones DJI — vento, rajadas, nuvens e temperatura em tempo real." />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="FlyDrone" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>FlyDrone — Condições de voo</title>
+</head>
+<body>
+
+  <!-- ============ SPRITE DE ÍCONES ============ -->
+  <svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/><circle cx="12" cy="10" r="2.6"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+    <symbol id="i-gps" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></symbol>
+
+    <symbol id="i-drone" viewBox="0 0 24 24">
+      <circle cx="5" cy="8" r="2.3"/><circle cx="19" cy="8" r="2.3"/>
+      <circle cx="5" cy="16" r="2.3"/><circle cx="19" cy="16" r="2.3"/>
+      <path d="M6.8 9.3 9.6 11.6M17.2 9.3 14.4 11.6M6.8 14.7 9.6 12.4M17.2 14.7 14.4 12.4"/>
+      <rect x="9.2" y="10.4" width="5.6" height="3.2" rx="1.3"/>
+    </symbol>
+
+    <symbol id="i-temp" viewBox="0 0 24 24">
+      <path d="M14 14.8V5a2 2 0 1 0-4 0v9.8a4 4 0 1 0 4 0Z"/><path d="M12 9v6.5"/>
+    </symbol>
+
+    <symbol id="i-wind" viewBox="0 0 24 24">
+      <path d="M3 8h9.5a2.5 2.5 0 1 0-2.4-3.2"/><path d="M3 12.5h13a2.5 2.5 0 1 1-2.4 3.2"/><path d="M3 17h6.5a2 2 0 1 1-2 2"/>
+    </symbol>
+
+    <symbol id="i-gust" viewBox="0 0 24 24">
+      <path d="M2 7h8.5a2.2 2.2 0 1 0-2.1-2.9"/><path d="M2 11.5h11a2.2 2.2 0 1 1-2.1 2.9"/>
+      <path d="M2 16h5.5a1.8 1.8 0 1 1-1.7 2.4"/><path d="M18.5 13.5 21 16l-2.5 2.5"/>
+    </symbol>
+
+    <symbol id="i-cloudbase" viewBox="0 0 24 24">
+      <path d="M6.5 17h9.7a3.6 3.6 0 0 0 .4-7.2A5.4 5.4 0 0 0 6.3 9.5 3.7 3.7 0 0 0 6.5 17Z"/>
+      <path d="M12 20v2M9.6 21l2.4 2 2.4-2"/>
+    </symbol>
+
+    <symbol id="i-compass" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5 5-2Z"/>
+    </symbol>
+
+    <symbol id="i-swap" viewBox="0 0 24 24">
+      <path d="M4 8h13l-3.2-3.2M20 16H7l3.2 3.2"/>
+    </symbol>
+
+    <symbol id="i-sun" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="4.2"/>
+      <path d="M12 2v2.2M12 19.8V22M2 12h2.2M19.8 12H22M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M19.1 4.9l-1.6 1.6M6.5 17.5l-1.6 1.6"/>
+    </symbol>
+
+    <symbol id="i-cloud-sun" viewBox="0 0 24 24">
+      <path d="M8 5.5V3.8M3.8 8H2M5.6 5.6 4.4 4.4"/>
+      <circle cx="7.6" cy="8.4" r="3"/>
+      <path d="M10.5 18.5h8a3.1 3.1 0 0 0 .3-6.2 4.7 4.7 0 0 0-8.8-1.6 3.2 3.2 0 0 0 .5 7.8Z"/>
+    </symbol>
+
+    <symbol id="i-cloud" viewBox="0 0 24 24">
+      <path d="M6.5 18h11a3.9 3.9 0 0 0 .4-7.8A5.8 5.8 0 0 0 6.2 9.6 3.9 3.9 0 0 0 6.5 18Z"/>
+    </symbol>
+
+    <symbol id="i-rain" viewBox="0 0 24 24">
+      <path d="M6.5 14.5h11a3.6 3.6 0 0 0 .3-7.2A5.4 5.4 0 0 0 6.2 6.5 3.6 3.6 0 0 0 6.5 14.5Z"/>
+      <path d="M8.5 17.5 7.5 21M12.5 17.5 11.5 21M16.5 17.5 15.5 21"/>
+    </symbol>
+
+    <symbol id="i-storm" viewBox="0 0 24 24">
+      <path d="M6.5 14h11a3.6 3.6 0 0 0 .3-7.2A5.4 5.4 0 0 0 6.2 6 3.6 3.6 0 0 0 6.5 14Z"/>
+      <path d="m13 13.5-3 4h3l-2 3.5"/>
+    </symbol>
+
+    <symbol id="i-snow" viewBox="0 0 24 24">
+      <path d="M6.5 14h11a3.6 3.6 0 0 0 .3-7.2A5.4 5.4 0 0 0 6.2 6 3.6 3.6 0 0 0 6.5 14Z"/>
+      <path d="M8 17.5v3M6.6 18.3l2.8 1.4M9.4 18.3l-2.8 1.4M15 17.5v3M13.6 18.3l2.8 1.4M16.4 18.3l-2.8 1.4"/>
+    </symbol>
+
+    <symbol id="i-fog" viewBox="0 0 24 24">
+      <path d="M6.5 12.5h11a3.6 3.6 0 0 0 .3-7.2A5.4 5.4 0 0 0 6.2 4.5 3.6 3.6 0 0 0 6.5 12.5Z"/>
+      <path d="M4 16.5h16M7 19.5h10"/>
+    </symbol>
+  </svg>
+
+  <!-- ============ APP ============ -->
+  <div class="app">
+
+    <header class="topbar">
+      <button class="icon-btn" id="menuBtn" aria-label="Abrir menu de drones" aria-expanded="false">
+        <svg class="icon"><use href="#i-menu"/></svg>
+      </button>
+
+      <div class="brand">
+        <span class="brand__mark"><svg class="icon"><use href="#i-drone"/></svg></span>
+        <span class="brand__name">Fly<strong>Drone</strong></span>
+      </div>
+
+      <button class="icon-btn" id="refreshBtn" aria-label="Atualizar dados">
+        <svg class="icon" id="refreshIcon"><use href="#i-refresh"/></svg>
+      </button>
+    </header>
+
+    <button class="location" id="locationBtn">
+      <svg class="icon icon--sm"><use href="#i-pin"/></svg>
+      <span class="location__text" id="placeName">Localizando…</span>
+      <svg class="icon icon--sm location__chev"><use href="#i-chevron"/></svg>
+    </button>
+
+    <main class="main" id="main">
+
+      <!-- STATUS GERAL -->
+      <section class="verdict" id="verdict" data-status="loading">
+        <div class="verdict__glow" aria-hidden="true"></div>
+
+        <div class="verdict__row">
+          <span class="verdict__badge" id="verdictBadge">
+            <span class="verdict__dot" aria-hidden="true"></span>
+            <span id="verdictLabel">Analisando…</span>
+          </span>
+          <span class="verdict__drone" id="verdictDrone">—</span>
+        </div>
+
+        <p class="verdict__reason" id="verdictReason">Buscando condições de voo…</p>
+
+        <div class="windbar" aria-hidden="true">
+          <div class="windbar__track">
+            <div class="windbar__fill" id="windFill"></div>
+            <div class="windbar__limit" id="windLimitMark"></div>
+          </div>
+          <div class="windbar__scale">
+            <span>Vento <b id="windNow">—</b></span>
+            <button type="button" class="windbar__unit" id="unitToggle"
+                    aria-label="Alternar unidade de vento entre km/h e m/s">
+              <svg class="icon icon--sm" aria-hidden="true"><use href="#i-swap"/></svg>
+              <span>Limite <b id="windLimit">—</b></span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- GRADE 3 POR LINHA -->
+      <section class="grid" aria-label="Condições detalhadas">
+
+        <article class="tile" id="tileTemp" data-status="good">
+          <div class="tile__head">
+            <svg class="tile__icon"><use href="#i-temp"/></svg>
+            <span>Temperatura</span>
+          </div>
+          <div class="tile__value" id="tempValue">—<small>°C</small></div>
+          <div class="tile__sub" id="tempSub">—</div>
+        </article>
+
+        <article class="tile" id="tileSky" data-status="good">
+          <div class="tile__head">
+            <svg class="tile__icon" id="skyIcon"><use href="#i-sun"/></svg>
+            <span>Céu</span>
+          </div>
+          <div class="tile__value tile__value--text" id="skyValue">—</div>
+          <div class="tile__sub" id="skySub">—</div>
+        </article>
+
+        <article class="tile" id="tileWind" data-status="good">
+          <div class="tile__head">
+            <svg class="tile__icon"><use href="#i-wind"/></svg>
+            <span>Vento</span>
+          </div>
+          <div class="tile__value" id="windValue">—<small>m/s</small></div>
+          <div class="tile__sub" id="windSub">—</div>
+        </article>
+
+        <article class="tile" id="tileGust" data-status="good">
+          <div class="tile__head">
+            <svg class="tile__icon"><use href="#i-gust"/></svg>
+            <span>Rajadas</span>
+          </div>
+          <div class="tile__value" id="gustValue">—<small>m/s</small></div>
+          <div class="tile__sub" id="gustSub">—</div>
+        </article>
+
+        <article class="tile" id="tileCloud" data-status="good">
+          <div class="tile__head">
+            <svg class="tile__icon"><use href="#i-cloudbase"/></svg>
+            <span>Nuvens</span>
+          </div>
+          <div class="tile__value" id="cloudValue">—<small>m</small></div>
+          <div class="tile__sub" id="cloudSub">—</div>
+        </article>
+
+        <article class="tile" id="tileDir" data-status="good">
+          <div class="tile__head">
+            <svg class="tile__icon"><use href="#i-compass"/></svg>
+            <span>Direção</span>
+          </div>
+          <div class="tile__value tile__value--dir">
+            <svg class="dir-arrow" id="dirArrow" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3v18M12 3l-4.5 4.5M12 3l4.5 4.5"/>
+            </svg>
+            <span id="dirValue">—</span>
+          </div>
+          <div class="tile__sub" id="dirSub">—</div>
+        </article>
+
+      </section>
+
+      <!-- PRÓXIMAS HORAS -->
+      <section class="hourly" id="hourly" hidden>
+        <div class="section-head">
+          <h2>Próximas horas</h2>
+          <span class="section-head__hint">vento · rajadas</span>
+        </div>
+        <div class="hourly__track" id="hourlyTrack"></div>
+      </section>
+
+      <p class="footnote">
+        Dados meteorológicos por <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>.
+        Limites de vento conforme especificações DJI. Voos acima de 120&nbsp;m exigem autorização (ANAC).
+      </p>
+
+    </main>
+
+    <div class="updated" id="updated">—</div>
+  </div>
+
+  <!-- ============ MENU LATERAL ============ -->
+  <div class="scrim" id="scrim" hidden></div>
+
+  <aside class="drawer" id="drawer" aria-hidden="true" aria-label="Selecionar drone">
+    <div class="drawer__head">
+      <div>
+        <p class="drawer__eyebrow">Configuração de voo</p>
+        <h2 class="drawer__title">Selecionar drone</h2>
+      </div>
+      <button class="icon-btn icon-btn--ghost" id="drawerClose" aria-label="Fechar menu">
+        <svg class="icon"><use href="#i-close"/></svg>
+      </button>
+    </div>
+
+    <p class="drawer__hint">O limite de vento de cada modelo define se o voo está liberado.</p>
+
+    <ul class="drone-list" id="droneList" role="listbox" aria-label="Modelos de drone"></ul>
+
+    <div class="drawer__foot">
+      <svg class="icon icon--sm"><use href="#i-drone"/></svg>
+      <span>Limites de vento baseados nas especificações oficiais DJI.</span>
+    </div>
+  </aside>
+
+  <!-- ============ MODAL DE LOCALIZAÇÃO ============ -->
+  <div class="modal" id="locModal" hidden>
+    <div class="modal__scrim" data-close-modal></div>
+    <div class="modal__sheet" role="dialog" aria-modal="true" aria-labelledby="locTitle">
+      <div class="modal__grab" aria-hidden="true"></div>
+      <h2 class="modal__title" id="locTitle">Local do voo</h2>
+
+      <div class="search">
+        <svg class="icon icon--sm search__icon"><use href="#i-search"/></svg>
+        <input id="locInput" class="search__input" type="search" placeholder="Cidade, bairro ou aeroporto"
+               autocomplete="off" enterkeyhint="search" />
+      </div>
+
+      <button class="gps-btn" id="gpsBtn">
+        <svg class="icon icon--sm"><use href="#i-gps"/></svg>
+        Usar minha localização atual
+      </button>
+
+      <ul class="results" id="locResults"></ul>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
