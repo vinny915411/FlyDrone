@@ -376,22 +376,24 @@ function assess(c, drone) {
   }
 
   if (gustStatus !== 'good') {
+    const g = windValue(gust);
     reasons.push({
       status: gustStatus,
       prio: 5,
       text: gustStatus === 'bad'
-        ? `Rajadas de ${fmt(gust)} m/s acima do limite do ${drone.name}.`
-        : `Rajadas de ${fmt(gust)} m/s próximas do limite do drone.`,
+        ? `Rajadas de ${g.text} ${g.unit} acima do limite do ${drone.name}.`
+        : `Rajadas de ${g.text} ${g.unit} próximas do limite do drone.`,
     });
   }
 
   if (windStatus !== 'good') {
+    const w = windValue(wind);
     reasons.push({
       status: windStatus,
       prio: 4,
       text: windStatus === 'bad'
-        ? `Vento de ${fmt(wind)} m/s acima do limite do ${drone.name}.`
-        : `Vento de ${fmt(wind)} m/s exigindo atenção.`,
+        ? `Vento de ${w.text} ${w.unit} acima do limite do ${drone.name}.`
+        : `Vento de ${w.text} ${w.unit} exigindo atenção.`,
     });
   }
 
