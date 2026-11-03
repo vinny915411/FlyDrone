@@ -19,6 +19,10 @@
   <!-- ============ SPRITE DE ÍCONES ============ -->
   <svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
     <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24">
+      <path d="M4 7h16M4 12h16M4 17h16"/>
+      <circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="12" r="2.2"/><circle cx="16" cy="17" r="2.2"/>
+    </symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></symbol>
     <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/><circle cx="12" cy="10" r="2.6"/></symbol>
     <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
@@ -154,7 +158,7 @@
             <div class="windbar__limit" id="windLimitMark"></div>
           </div>
           <div class="windbar__scale">
-            <span>Vento <b id="windNow">—</b></span>
+            <span><span id="windNowLabel">Vento</span> <b id="windNow">—</b></span>
             <button type="button" class="windbar__unit" id="unitToggle"
                     aria-label="Alternar unidade de vento entre km/h e m/s">
               <svg class="icon icon--sm" aria-hidden="true"><use href="#i-swap"/></svg>
@@ -241,7 +245,7 @@
       <section class="hourly" id="hourly" hidden>
         <div class="section-head">
           <h2>Próximas horas</h2>
-          <span class="section-head__hint">vento · rajadas</span>
+          <span class="section-head__hint" id="hourlyHint">vento · rajadas</span>
         </div>
         <div class="hourly__track" id="hourlyTrack"></div>
       </section>
@@ -259,20 +263,85 @@
   <!-- ============ MENU LATERAL ============ -->
   <div class="scrim" id="scrim" hidden></div>
 
-  <aside class="drawer" id="drawer" aria-hidden="true" aria-label="Selecionar drone">
+  <aside class="drawer" id="drawer" aria-hidden="true" aria-label="Menu">
     <div class="drawer__head">
       <div>
         <p class="drawer__eyebrow">Configuração de voo</p>
-        <h2 class="drawer__title">Selecionar drone</h2>
+        <h2 class="drawer__title">Menu</h2>
       </div>
       <button class="icon-btn icon-btn--ghost" id="drawerClose" aria-label="Fechar menu">
         <svg class="icon"><use href="#i-close"/></svg>
       </button>
     </div>
 
-    <p class="drawer__hint">O limite de vento de cada modelo define se o voo está liberado.</p>
+    <div class="menu">
 
-    <ul class="drone-list" id="droneList" role="listbox" aria-label="Modelos de drone"></ul>
+      <!-- ---------- SELECIONE O DRONE ---------- -->
+      <button class="menu__row" id="menuDrone" type="button"
+              aria-expanded="true" aria-controls="dronePanel">
+        <span class="menu__icon"><svg class="icon"><use href="#i-drone"/></svg></span>
+        <span class="menu__body">
+          <span class="menu__label">Selecione o Drone</span>
+          <span class="menu__sub" id="menuDroneName">—</span>
+        </span>
+        <svg class="icon menu__chev" aria-hidden="true"><use href="#i-chevron"/></svg>
+      </button>
+
+      <div class="menu__panel" id="dronePanel">
+        <ul class="drone-list" id="droneList" role="listbox" aria-label="Modelos de drone"></ul>
+      </div>
+
+      <!-- ---------- PARÂMETROS ---------- -->
+      <button class="menu__row" id="menuParams" type="button"
+              aria-expanded="false" aria-controls="paramsPanel">
+        <span class="menu__icon"><svg class="icon"><use href="#i-sliders"/></svg></span>
+        <span class="menu__body">
+          <span class="menu__label">Parâmetros</span>
+          <span class="menu__sub">Unidade, rajada e altitude</span>
+        </span>
+        <svg class="icon menu__chev" aria-hidden="true"><use href="#i-chevron"/></svg>
+      </button>
+
+      <div class="menu__panel" id="paramsPanel" hidden>
+        <div class="param">
+          <div class="param__head">
+            <span class="param__label">Unidade do vento</span>
+            <span class="param__hint">No app todo</span>
+          </div>
+          <div class="seg" role="group" aria-label="Unidade do vento">
+            <button class="seg__btn" type="button" data-unit="kmh">km/h</button>
+            <button class="seg__btn" type="button" data-unit="ms">m/s</button>
+          </div>
+        </div>
+
+        <div class="param">
+          <div class="param__head">
+            <span class="param__label">Alerta de rajada</span>
+            <span class="param__hint" id="gustHint">80% do limite DJI</span>
+          </div>
+          <div class="seg" role="group" aria-label="Alerta de rajada">
+            <button class="seg__btn" type="button" data-gust="0.7">70%</button>
+            <button class="seg__btn" type="button" data-gust="0.75">75%</button>
+            <button class="seg__btn" type="button" data-gust="0.8">80%</button>
+            <button class="seg__btn" type="button" data-gust="0.85">85%</button>
+          </div>
+        </div>
+
+        <div class="param">
+          <div class="param__head">
+            <span class="param__label">Vento por altitude</span>
+            <span class="param__hint" id="altHint">120 m</span>
+          </div>
+          <div class="seg" role="group" aria-label="Altura do vento">
+            <button class="seg__btn" type="button" data-alt="30">30 m</button>
+            <button class="seg__btn" type="button" data-alt="50">50 m</button>
+            <button class="seg__btn" type="button" data-alt="80">80 m</button>
+            <button class="seg__btn" type="button" data-alt="120">120 m</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
 
     <div class="drawer__foot">
       <svg class="icon icon--sm"><use href="#i-drone"/></svg>

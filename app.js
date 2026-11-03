@@ -70,6 +70,8 @@ const DRONES = [
 const STORAGE = {
   drone: 'flydrone.drone',
   place: 'flydrone.place',
+  gust:  'flydrone.gust',
+  altitude: 'flydrone.altitude',
 };
 
 /* Atualiza sozinho a cada 10 min; ao voltar para o app, se ficou 3 min fora. */
@@ -90,11 +92,15 @@ const API_GEOCODE  = 'https://geocoding-api.open-meteo.com/v1/search';
 const STATUS_RANK = { good: 0, warn: 1, bad: 2 };
 
 /* Faixas de alerta como fração do limite de vento do drone.
-   Rajada: 80% = margem de 20% abaixo do limite DJI. */
+   Vento é fixo; a rajada é ajustável em Parâmetros (padrão 80%). */
 const WIND_GOOD_RATIO = 0.60;
 const WIND_WARN_RATIO = 0.85;
-const GUST_GOOD_RATIO = 0.80;
-const GUST_WARN_RATIO = 0.90;
+const DEFAULT_GUST_GOOD_RATIO = 0.80;
+
+/* Alturas de voo disponíveis. A Open-Meteo entrega 10, 80 e 120 m;
+   os valores de 30 e 50 m são interpolados entre 10 e 80 m. */
+const ALTITUDES = [30, 50, 80, 120];
+const DEFAULT_ALTITUDE = 120;
 
 /* ------------------------------------------------------------
    2. ESTADO
@@ -108,7 +114,24 @@ const state = {
   lastAttemptAt: 0,  // última tentativa (evita repetir em caso de erro)
   hourKey: null,
   windUnit: 'kmh', // sempre volta para km/h ao recarregar a página
+  gustGoodRatio: readGustRatio(),
+  altitude: readAltitude(),
 };
+
+function readGustRatio() {
+  const v = Number(localStorage.getItem(STORAGE.gust));
+  return Number.isFinite(v) && v >= 0.5 && v <= 0.95 ? v : DEFAULT_GUST_GOOD_RATIO;
+}
+
+function readAltitude() {
+  const v = Number(localStorage.getItem(STORAGE.altitude));
+  return ALTITUDES.includes(v) ? v : DEFAULT_ALTITUDE;
+}
+
+/* A faixa amarela sempre começa 10 pontos acima do verde (máx. 95%). */
+function gustWarnRatio() {
+  return Math.min(0.95, state.gustGoodRatio + 0.1);
+}
 
 function readSavedPlace() {
   try {
@@ -128,6 +151,7 @@ function getDrone() {
    3. ELEMENTOS
    ------------------------------------------------------------ */
 const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 const el = {
   menuBtn:      $('#menuBtn'),
@@ -145,6 +169,7 @@ const el = {
   windFill:     $('#windFill'),
   windLimitMark:$('#windLimitMark'),
   windNow:      $('#windNow'),
+  windNowLabel: $('#windNowLabel'),
   windLimit:    $('#windLimit'),
   unitToggle:   $('#unitToggle'),
 
@@ -179,6 +204,17 @@ const el = {
   drawer:      $('#drawer'),
   drawerClose: $('#drawerClose'),
   droneList:   $('#droneList'),
+
+  menuDrone:     $('#menuDrone'),
+  menuDroneName: $('#menuDroneName'),
+  menuParams:    $('#menuParams'),
+  dronePanel:    $('#dronePanel'),
+  paramsPanel:   $('#paramsPanel'),
+  unitBtns:      $$('.seg__btn[data-unit]'),
+  gustBtns:      $$('.seg__btn[data-gust]'),
+  altBtns:       $$('.seg__btn[data-alt]'),
+  gustHint:      $('#gustHint'),
+  altHint:       $('#altHint'),
 
   droneModal:   $('#droneModal'),
   droneTitle:   $('#droneTitle'),
@@ -215,6 +251,97 @@ function windValue(ms, msDigits = 1) {
     return { text: fmt(ms, msDigits), unit: 'm/s' };
   }
   return { text: fmt(ms * 3.6, 0), unit: 'km/h' };
+}
+
+/* ------------------------------------------------------------
+   VENTO NA ALTITUDE DE VOO
+   A Open-Meteo entrega vento a 10, 80 e 120 m. Para 30 e 50 m
+   interpolamos entre 10 e 80 m pela lei de potência (perfil
+   logarítmico do vento com a altura).
+   ------------------------------------------------------------ */
+function numOrNull(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/* Interpola a direção (graus) pelo caminho mais curto. */
+function interpDirection(a, b, t) {
+  if (!Number.isFinite(a)) return b;
+  if (!Number.isFinite(b)) return a;
+  if (!t) return a;
+  const r1 = (a * Math.PI) / 180;
+  const r2 = (b * Math.PI) / 180;
+  const x = Math.cos(r1) * (1 - t) + Math.cos(r2) * t;
+  const y = Math.sin(r1) * (1 - t) + Math.sin(r2) * t;
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+/* Devolve vento e direção na altura pedida, a partir de um objeto
+   com as chaves wind_speed_* / wind_direction_* da API. */
+function levelWind(src, level) {
+  const anchor = (h, vKey, dKey) => {
+    const v = numOrNull(src[vKey]);
+    if (v === null) return null;
+    return { h, v, d: numOrNull(src[dKey]) };
+  };
+
+  const levels = [
+    anchor(10, 'wind_speed_10m', 'wind_direction_10m'),
+    anchor(80, 'wind_speed_80m', 'wind_direction_80m'),
+    anchor(120, 'wind_speed_120m', 'wind_direction_120m'),
+  ].filter(Boolean).sort((a, b) => a.h - b.h);
+
+  if (!levels.length) {
+    return { speed: 0, dir: null, estimated: true, fallback: true };
+  }
+
+  const exact = levels.find((l) => l.h === level);
+  if (exact) {
+    return { speed: exact.v, dir: exact.d, estimated: false, fallback: false };
+  }
+
+  const lower = levels.filter((l) => l.h < level).pop();
+  const upper = levels.find((l) => l.h > level);
+
+  if (!lower || !upper) {
+    /* Fora da faixa coberta pela API: usa o nível mais próximo. */
+    const near = lower || upper || levels[0];
+    return { speed: near.v, dir: near.d, estimated: true, fallback: true };
+  }
+
+  const t = Math.log(level / lower.h) / Math.log(upper.h / lower.h);
+
+  let speed;
+  if (lower.v > 0.05 && upper.v > 0.05) {
+    const alpha = Math.log(upper.v / lower.v) / Math.log(upper.h / lower.h);
+    speed = lower.v * Math.pow(level / lower.h, alpha);
+  } else {
+    speed = lower.v + (upper.v - lower.v) * t;
+  }
+
+  return {
+    speed,
+    dir: interpDirection(lower.d, upper.d, t),
+    estimated: true,
+    fallback: false,
+  };
+}
+
+/* Rajada na altura: a API só publica rajadas a 10 m. Aplicamos o
+   mesmo crescimento do vento médio (fator de rajada constante),
+   limitado a 2× para não exagerar. É uma estimativa. */
+function gustAtLevel(src, level, windSpeed) {
+  const base = numOrNull(src.wind_gusts_10m) ?? 0;
+  if (level <= 10) return { value: base, estimated: false };
+
+  const v10 = numOrNull(src.wind_speed_10m);
+  if (v10 === null || v10 < 0.5 || windSpeed <= 0) {
+    return { value: base, estimated: true };
+  }
+
+  const ratio = Math.min(2, Math.max(1, windSpeed / v10));
+  return { value: base * ratio, estimated: true };
 }
 
 /* Hora atual no fuso do local consultado (a API devolve o offset). */
@@ -280,17 +407,20 @@ function skyInfo(code, isDay = true) {
 
 function assess(c, drone) {
   /* ---- Vento ---- */
-  const wind = Number(c.wind_speed_10m) || 0;
-  const gust = Number(c.wind_gusts_10m) || 0;
+  const windAt = levelWind(c, state.altitude);
+  const wind = windAt.speed;
+  const gustAt = gustAtLevel(c, state.altitude, wind);
+  const gust = gustAt.value;
   const limit = drone.windLimit;
+  const alt = state.altitude > 10 ? ` a ${state.altitude} m` : '';
 
   const windRatio = wind / limit;
   const windStatus = windRatio <= WIND_GOOD_RATIO ? 'good'
     : windRatio <= WIND_WARN_RATIO ? 'warn' : 'bad';
 
   const gustRatio = gust / limit;
-  const gustStatus = gustRatio <= GUST_GOOD_RATIO ? 'good'
-    : gustRatio <= GUST_WARN_RATIO ? 'warn' : 'bad';
+  const gustStatus = gustRatio <= state.gustGoodRatio ? 'good'
+    : gustRatio <= gustWarnRatio() ? 'warn' : 'bad';
 
   /* ---- Temperatura ---- */
   const temp = Number(c.temperature_2m);
@@ -350,7 +480,9 @@ function assess(c, drone) {
   const cloudBase = cloudApprox ? (cloudCover < 15 ? 3000 : midCover >= 20 ? 2000 : 4000) : base;
 
   /* ---- Direção do vento (informativa, colorida pelo vento) ---- */
-  const dir = Number(c.wind_direction_10m);
+  const dir = Number.isFinite(windAt.dir)
+    ? windAt.dir
+    : Number(c.wind_direction_10m) || 0;
   const dirStatus = windStatus;
 
   /* ---- Status geral ---- */
@@ -381,8 +513,8 @@ function assess(c, drone) {
       status: gustStatus,
       prio: 5,
       text: gustStatus === 'bad'
-        ? `Rajadas de ${g.text} ${g.unit} acima do limite do ${drone.name}.`
-        : `Rajadas de ${g.text} ${g.unit} próximas do limite do drone.`,
+        ? `Rajadas de ${g.text} ${g.unit}${alt} acima do limite do ${drone.name}.`
+        : `Rajadas de ${g.text} ${g.unit}${alt} próximas do limite do drone.`,
     });
   }
 
@@ -392,8 +524,8 @@ function assess(c, drone) {
       status: windStatus,
       prio: 4,
       text: windStatus === 'bad'
-        ? `Vento de ${w.text} ${w.unit} acima do limite do ${drone.name}.`
-        : `Vento de ${w.text} ${w.unit} exigindo atenção.`,
+        ? `Vento de ${w.text} ${w.unit}${alt} acima do limite do ${drone.name}.`
+        : `Vento de ${w.text} ${w.unit}${alt} exigindo atenção.`,
     });
   }
 
@@ -428,12 +560,12 @@ function assess(c, drone) {
   return {
     overall,
     reasonText,
-    wind:  { value: wind,  status: windStatus,  ratio: windRatio },
-    gust:  { value: gust,  status: gustStatus,  ratio: gustRatio },
+    wind:  { value: wind,  status: windStatus,  ratio: windRatio, level: state.altitude, estimated: windAt.estimated },
+    gust:  { value: gust,  status: gustStatus,  ratio: gustRatio, level: state.altitude, estimated: gustAt.estimated },
     temp:  { value: temp,  status: tempStatus },
     sky:   { ...sky, status: skyStatus, code, cloudCover },
     cloud: { base: cloudBase, status: cloudStatus, cover: cloudCover, label: cloudLabel, approx: cloudApprox },
-    dir:   { value: dir, status: dirStatus },
+    dir:   { value: dir, status: dirStatus, level: state.altitude },
   };
 }
 
@@ -453,6 +585,7 @@ function render() {
 
   el.updated.textContent = `Atualizado às ${timeOf(c.time)} · Open-Meteo`;
   state.hourKey = currentHourKey();
+  syncMenu();
 }
 
 function renderVerdict(a, drone) {
@@ -473,6 +606,7 @@ function renderVerdict(a, drone) {
 
   const now = windValue(a.wind.value);
   const lim = windValue(drone.windLimit);
+  el.windNowLabel.textContent = state.altitude > 10 ? `Vento a ${state.altitude} m` : 'Vento';
   el.windNow.textContent = `${now.text} ${now.unit}`;
   el.windLimit.textContent = `${lim.text} ${lim.unit}`;
 }
@@ -494,13 +628,15 @@ function renderTiles(a, drone, c) {
   const windNow = windValue(a.wind.value);
   el.tileWind.dataset.status = a.wind.status;
   el.windValue.innerHTML = `${windNow.text}<small>${windNow.unit}</small>`;
-  el.windSub.textContent = `${Math.round(a.wind.ratio * 100)}% do limite`;
+  el.windSub.textContent =
+    `${Math.round(a.wind.ratio * 100)}% do limite · a ${state.altitude} m`;
 
   /* --- Rajadas --- */
   const gustNow = windValue(a.gust.value);
   el.tileGust.dataset.status = a.gust.status;
   el.gustValue.innerHTML = `${gustNow.text}<small>${gustNow.unit}</small>`;
-  el.gustSub.textContent = `${Math.round(a.gust.ratio * 100)}% do limite`;
+  el.gustSub.textContent =
+    `${Math.round(a.gust.ratio * 100)}% do limite · est. ${state.altitude} m`;
 
   /* --- Nuvens --- */
   el.tileCloud.dataset.status = a.cloud.status;
@@ -511,10 +647,10 @@ function renderTiles(a, drone, c) {
   const dirCardinal = cardinal(a.dir.value);
   el.tileDir.dataset.status = a.dir.status;
   el.dirValue.textContent = dirCardinal;
-  el.dirSub.textContent = `Vindo de ${Math.round(a.dir.value)}°`;
+  el.dirSub.textContent = `${Math.round(a.dir.value)}° · a ${state.altitude} m`;
   el.compass.setAttribute(
     'aria-label',
-    `Vento vindo de ${dirCardinal} (${Math.round(a.dir.value)}°)`
+    `Vento a ${state.altitude} m vindo de ${dirCardinal} (${Math.round(a.dir.value)}°)`
   );
   /* A seta verde da bússola aponta para a origem do vento (de onde ele vem). */
   el.dirArrow.style.transform = `rotate(${a.dir.value}deg)`;
@@ -525,7 +661,7 @@ function renderDroneSpecs(drone) {
   const windKmh = `${fmt(drone.windLimit * 3.6, 0)} km/h`;
   const rows = [
     { label: 'Velocidade máxima', value: drone.specs.speed, hint: drone.specs.speedHint },
-    { label: 'Rajada suportada', value: windKmh, hint: `alerta a partir de ${fmt(drone.windLimit * 3.6 * GUST_GOOD_RATIO, 0)} km/h` },
+    { label: 'Rajada suportada', value: windKmh, hint: `alerta em ${Math.round(state.gustGoodRatio * 100)}% · ${fmt(drone.windLimit * 3.6 * state.gustGoodRatio, 0)} km/h` },
     { label: 'Vento suportado', value: windKmh, hint: `${fmt(drone.windLimit, 1)} m/s` },
     { label: 'Peso', value: drone.specs.weight },
     { label: 'Distância máxima', value: drone.specs.distance, hint: drone.specs.distanceHint },
@@ -586,16 +722,30 @@ function renderHourly(drone) {
 
   const frag = document.createDocumentFragment();
 
+  el.hourlyHint.textContent = `a ${state.altitude} m · rajada est.`;
+
   slice.forEach((t, i) => {
     const idx = start + i;
-    const wind = Number(hourly.wind_speed_10m[idx]) || 0;
-    const gust = Number(hourly.wind_gusts_10m[idx]) || 0;
+
+    const src = {
+      wind_speed_10m: hourly.wind_speed_10m?.[idx],
+      wind_speed_80m: hourly.wind_speed_80m?.[idx],
+      wind_speed_120m: hourly.wind_speed_120m?.[idx],
+      wind_direction_10m: hourly.wind_direction_10m?.[idx],
+      wind_direction_80m: hourly.wind_direction_80m?.[idx],
+      wind_direction_120m: hourly.wind_direction_120m?.[idx],
+      wind_gusts_10m: hourly.wind_gusts_10m?.[idx],
+    };
+
+    const atLevel = levelWind(src, state.altitude);
+    const wind = atLevel.speed;
+    const gust = gustAtLevel(src, state.altitude, wind).value;
     const ratio = wind / drone.windLimit;
     const gustRatio = gust / drone.windLimit;
 
     const status = Math.max(
       ratio <= WIND_GOOD_RATIO ? 0 : ratio <= WIND_WARN_RATIO ? 1 : 2,
-      gustRatio <= GUST_GOOD_RATIO ? 0 : gustRatio <= GUST_WARN_RATIO ? 1 : 2
+      gustRatio <= state.gustGoodRatio ? 0 : gustRatio <= gustWarnRatio() ? 1 : 2
     );
 
     const card = document.createElement('div');
@@ -668,6 +818,25 @@ function syncDroneList() {
     btn.classList.toggle('is-active', active);
     btn.setAttribute('aria-selected', String(active));
   });
+  el.menuDroneName.textContent = getDrone().name;
+}
+
+/* Abre/fecha uma seção do menu (só uma por vez). */
+function setMenuPanel(row, panel, open) {
+  row.setAttribute('aria-expanded', String(open));
+  panel.hidden = !open;
+}
+
+/* Mantém os controles de Parâmetros e a unidade atual em sincronia. */
+function syncMenu() {
+  el.unitBtns.forEach((btn) => {
+    btn.classList.toggle('is-active', btn.dataset.unit === state.windUnit);
+  });
+  el.gustBtns.forEach((btn) => {
+    btn.classList.toggle('is-active',
+      Math.abs(Number(btn.dataset.gust) - state.gustGoodRatio) < 1e-3);
+  });
+  el.gustHint.textContent = `${Math.round(state.gustGoodRatio * 100)}% do limite DJI`;
 }
 
 function selectDrone(id) {
@@ -982,9 +1151,47 @@ function bindEvents() {
     loadWeather();
   });
 
+  /* --- Seções do menu (acordeão: só uma aberta por vez) --- */
+  el.menuDrone.addEventListener('click', () => {
+    const open = el.menuDrone.getAttribute('aria-expanded') !== 'true';
+    setMenuPanel(el.menuDrone, el.dronePanel, open);
+    if (open) setMenuPanel(el.menuParams, el.paramsPanel, false);
+  });
+
+  el.menuParams.addEventListener('click', () => {
+    const open = el.menuParams.getAttribute('aria-expanded') !== 'true';
+    setMenuPanel(el.menuParams, el.paramsPanel, open);
+    if (open) setMenuPanel(el.menuDrone, el.dronePanel, false);
+    if (open) syncMenu();
+  });
+
+  /* --- Parâmetros: unidade do vento --- */
+  el.unitBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.windUnit = btn.dataset.unit === 'ms' ? 'ms' : 'kmh';
+      syncMenu();
+      if (state.weather) render();
+      toast(state.windUnit === 'ms' ? 'Vento em m/s' : 'Vento em km/h');
+    });
+  });
+
+  /* --- Parâmetros: alerta de rajada --- */
+  el.gustBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const v = Number(btn.dataset.gust);
+      if (!Number.isFinite(v)) return;
+      state.gustGoodRatio = v;
+      localStorage.setItem(STORAGE.gust, String(v));
+      syncMenu();
+      if (state.weather) render();
+      toast(`Alerta de rajada em ${Math.round(v * 100)}% do limite`);
+    });
+  });
+
   /* Toque em "Limite …" alterna km/h ⇄ m/s (volta ao km/h ao recarregar) */
   el.unitToggle.addEventListener('click', () => {
     state.windUnit = state.windUnit === 'kmh' ? 'ms' : 'kmh';
+    syncMenu();
     if (state.weather) render();
     toast(state.windUnit === 'ms' ? 'Vento em m/s' : 'Vento em km/h');
   });

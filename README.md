@@ -10,8 +10,13 @@ dados da [Open-Meteo](https://open-meteo.com/).
 
 ## O que ele faz
 
-- **Menu de barrinhas (☰)** para escolher o drone: Mini 3, Mini 3 Pro,
-  Mini 4 Pro, Mini 5 Pro, Air 3 e Air 3S.
+- **Menu de barrinhas (☰)** com duas seções expansíveis:
+  - **Selecione o Drone** — abre a lista: Mini 3, Mini 3 Pro, Mini 4 Pro,
+    Mini 5 Pro, Air 3 e Air 3S (mostra o modelo atual logo abaixo do título).
+  - **Parâmetros** — unidade do vento (km/h ⇄ m/s) e alerta de rajada
+    (70%, 75%, 80% ou 85% do limite DJI; padrão 80%). A escolha do alerta
+    fica salva no navegador.
+  - Só uma seção fica aberta por vez; a lista de drones já abre expandida.
 - **Status geral no topo**: verde “Bom para voo”, amarelo “Voo com atenção”
   ou vermelho “Ruim para voo”, com o motivo principal.
 - **Ficha do drone**: toque no **nome do drone** (abaixo do status) para abrir
@@ -116,6 +121,10 @@ Regras aplicadas:
 | Céu               | limpo/parcial    | nublado           | chuva, garoa, nevoeiro, tempestade |
 | Nuvens baixas     | acima de 400 m   | 200 a 400 m       | abaixo de 200 m       |
 | Visibilidade      | acima de 5 km    | 3 a 5 km          | abaixo de 3 km        |
+
+> A faixa **verde da rajada é ajustável** em ☰ → **Parâmetros**
+> (70 / 75 / 80 / 85% do limite DJI). O padrão é 80%, e a faixa amarela
+> sempre começa 10 pontos acima do verde (máx. 95%).
 
 > A altura das nuvens é **estimada** pela diferença entre temperatura e ponto
 > de orvalho (nível de condensação) e pelas camadas de nuvem da Open-Meteo.
